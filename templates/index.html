@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#10253f" />
+    <title>访客预约</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="topbar">
+        <div>
+          <p class="eyebrow">PKU · SIMSO</p>
+          <h1>访客预约</h1>
+          <p class="subline">登录后查看历史记录，填写、保存并提交新的访客预约。</p>
+        </div>
+        <div class="status-pill" id="statusPill"><span></span>未登录</div>
+      </section>
+
+      <section class="card login-card" id="loginCard">
+        <div class="card-heading">
+          <div>
+            <p class="section-kicker">统一身份认证</p>
+            <h2>登录北大门户</h2>
+          </div>
+          <div class="lock-mark">ID</div>
+        </div>
+        <form id="loginForm" autocomplete="off">
+          <label>用户名<input id="username" name="username" inputmode="numeric" required /></label>
+          <label>密码<input id="password" name="password" type="password" required /></label>
+
+          <div class="verification-box">
+            <div class="verification-head">
+              <div>
+                <strong>二次验证</strong>
+                <small id="verificationHint">先检查当前账号是否需要额外验证</small>
+              </div>
+              <button class="button button-quiet" id="checkVerification" type="button">检查</button>
+            </div>
+            <div class="verification-state" id="verificationState">尚未检查</div>
+            <div class="verification-fields" id="verificationFields" hidden>
+              <label class="optional-field" id="otpField" hidden>手机令牌 OTP<input id="otpCode" inputmode="numeric" /></label>
+              <label class="optional-field" id="smsField" hidden>短信验证码<input id="smsCode" inputmode="numeric" /></label>
+              <label class="optional-field" id="captchaField" hidden>图形验证码<input id="randCode" /></label>
+            </div>
+            <label class="checkline"><input id="trustDevice" type="checkbox" checked /> 同设备登录免二次验证</label>
+          </div>
+
+          <button class="button button-primary" id="loginButton" type="submit">登录并读取记录</button>
+          <p class="form-message" id="formMessage" role="status"></p>
+        </form>
+      </section>
+
+      <section class="card records-card" id="recordsCard" hidden>
+        <div class="records-head">
+          <div>
+            <p class="section-kicker">历史记录</p>
+            <h2>预约申请</h2>
+          </div>
+          <div class="head-actions">
+            <button class="button button-secondary" id="refreshAppointmentButton" type="button">刷新预约配置</button>
+            <button class="button button-quiet" id="logoutButton" type="button">退出</button>
+          </div>
+        </div>
+        <div class="summary-row" id="summaryRow"></div>
+        <div id="records"></div>
+        <div class="records-actions">
+          <button class="button button-secondary" id="loadMoreButton" type="button">加载更多</button>
+          <span id="pageStatus"></span>
+        </div>
+      </section>
+
+      <section class="card appointment-card" id="appointmentCard" hidden>
+        <div class="records-head">
+          <div>
+            <p class="section-kicker">新建申请</p>
+            <h2>填写访客预约</h2>
+          </div>
+          <span class="draft-pill" id="appointmentState">尚未保存</span>
+        </div>
+
+        <div class="student-info" id="studentInfo"></div>
+        <p class="appointment-hint" id="appointmentHint"></p>
+
+        <form id="appointmentForm" autocomplete="off">
+          <div class="form-grid">
+            <label>预约人联系电话<input id="lxdh" required placeholder="请输入你在门户中登记的联系电话" /></label>
+            <label>预约日期<select id="yyrq" required><option value="">请选择预约日期</option></select></label>
+            <label>预约时间<select id="yysj" required><option value="">请选择预约时间</option></select></label>
+            <label>预约校门<select id="yyxm" required><option value="">请选择预约校门</option></select></label>
+            <label>被预约人姓名<input id="byyrxm" required maxlength="30" placeholder="请输入被预约人姓名" /></label>
+            <label>被预约人证件号<input id="byyrzjh" required placeholder="6—18 位字母或数字" /></label>
+            <label>被预约人联系电话<input id="byyrlxdh" required maxlength="20" placeholder="请输入 11 位手机号" /></label>
+          </div>
+
+          <div class="appointment-tools">
+            <button class="button button-quiet" id="recentContactsButton" type="button">选择近期预约人</button>
+            <button class="button button-quiet" id="toggleAutoPickButton" type="button">自动提取信息</button>
+          </div>
+          <textarea class="auto-pick" id="autoPick" rows="2" hidden placeholder="粘贴：姓名 证件号 手机号"></textarea>
+          <label>预约事由<textarea id="yysy" required maxlength="100" rows="4" placeholder="不超过100个汉字，例如父母探望、送交论文等"></textarea></label>
+
+          <div class="appointment-actions">
+            <button class="button button-secondary" id="saveAppointmentButton" type="button">保存草稿</button>
+            <button class="button button-primary compact-primary" id="submitAppointmentButton" type="button">保存并提交</button>
+          </div>
+          <p class="form-message" id="appointmentMessage" role="status"></p>
+        </form>
+
+        <div class="recent-contacts" id="recentContacts" hidden>
+          <div class="recent-head"><strong>近期预约人</strong><button class="button button-quiet" id="closeRecentContacts" type="button">关闭</button></div>
+          <div id="recentContactList"></div>
+        </div>
+        <div class="code-box" id="appointmentCodeBox" hidden>
+          <label id="appointmentCodeLabel">验证码<input id="appointmentCode" /></label>
+          <button class="button button-primary compact-primary" id="confirmSubmitButton" type="button">确认提交</button>
+        </div>
+      </section>
+    </main>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
