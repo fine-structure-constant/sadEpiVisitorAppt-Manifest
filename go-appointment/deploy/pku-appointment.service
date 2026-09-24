@@ -1,0 +1,19 @@
+[Unit]
+Description=PKU appointment worker and local Web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pku-appointment
+Group=pku-appointment
+WorkingDirectory=/var/lib/pku-appointment
+ExecStart=/opt/pku-appointment/pku-appointment -config /opt/pku-appointment/config.json -db /var/lib/pku-appointment/appointments.db -mode all
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,88 @@
+:root {
+  color-scheme: light;
+  --ink: #132238;
+  --muted: #617086;
+  --line: #dce3ec;
+  --paper: #fff;
+  --blue: #1459a6;
+  --blue-dark: #0d3d74;
+  --green: #147a52;
+  --red: #b42318;
+  font-family: Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--ink); background: #f3f6fa; }
+a { color: inherit; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+.machine-shell { width: min(1120px, calc(100% - 32px)); margin: 0 auto 48px; }
+.machine-header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.machine-brand { text-decoration: none; font-weight: 800; font-size: 20px; }
+.machine-brand small { display: block; color: var(--muted); font-size: 10px; letter-spacing: .08em; }
+.machine-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.machine-nav a { padding: 9px 12px; border-radius: 8px; text-decoration: none; color: var(--muted); }
+.machine-nav a:hover, .machine-nav a.active { color: var(--blue); background: #e5eef9; }
+.page-hero { display: flex; justify-content: space-between; align-items: end; gap: 24px; padding: 34px 0 26px; }
+.page-hero h1 { margin: 4px 0 8px; font-size: clamp(28px, 4vw, 44px); }
+.page-hero p { margin: 0; color: var(--muted); line-height: 1.7; }
+.section-kicker { color: var(--blue) !important; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.card { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 10px 30px rgba(34, 57, 85, .07); }
+.machine-card { padding: 24px; margin-bottom: 22px; }
+.button { border: 1px solid transparent; border-radius: 9px; padding: 10px 15px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.button:disabled { cursor: wait; opacity: .55; }
+.button-primary { color: #fff; background: var(--blue); }
+.button-primary:hover { background: var(--blue-dark); }
+.button-secondary { color: var(--blue); border-color: #aec9e8; background: #edf5fd; }
+.button-quiet { color: var(--ink); border-color: var(--line); background: #fff; }
+.danger-button { color: var(--red); border-color: #f0b9b5; background: #fff6f5; }
+label { display: grid; gap: 7px; font-weight: 700; color: #34445a; }
+input, select, textarea { width: 100%; border: 1px solid #bdc8d7; border-radius: 9px; padding: 10px 11px; color: var(--ink); background: #fff; }
+input:focus, select:focus, textarea:focus { outline: 3px solid rgba(20, 89, 166, .13); border-color: var(--blue); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.form-actions, .appointment-tools, .records-actions, .stack-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 18px; }
+.form-message { min-height: 24px; color: var(--muted); }
+.form-message.success { color: var(--green); }
+.form-message.error, .stack-error { color: var(--red); }
+.appointment-hint { color: var(--muted); }
+.student-info, .status-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.student-info span, .status-tile { padding: 14px; border-radius: 10px; background: #f5f8fc; }
+.student-info small, .status-tile span { display: block; color: var(--muted); margin-bottom: 4px; }
+.status-tile strong.ok { color: var(--green); }
+.status-tile strong.bad { color: var(--red); }
+.config-warning { border: 1px solid #f2c581; background: #fff8e8; color: #77510a; border-radius: 10px; padding: 12px 14px; margin-bottom: 18px; }
+.records-head, .record-main, .stack-item-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.record, .stack-item { border-top: 1px solid var(--line); padding: 20px 0; }
+.record:first-child, .stack-item:first-child { border-top: 0; }
+.record h3, .stack-item h2, .records-head h2 { margin: 4px 0; }
+.record-date, .stack-id { color: var(--blue); font-size: 12px; font-weight: 800; letter-spacing: .06em; }
+.record-meta { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); margin: 10px 0; }
+.badge, .stack-badge { border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 800; background: #edf1f6; }
+.badge.approved, .stack-badge.completed { color: var(--green); background: #e5f6ef; }
+.stack-badge.failed, .stack-badge.cancelled { color: var(--red); background: #ffeded; }
+.stack-badge.running { color: var(--blue); background: #e7f0fb; }
+.detail-grid, .stack-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.detail-grid div, .stack-meta div { min-width: 0; }
+.detail-grid span, .stack-meta span { display: block; color: var(--muted); font-size: 12px; }
+.detail-grid b, .stack-meta b { display: block; overflow-wrap: anywhere; }
+details summary { cursor: pointer; color: var(--blue); }
+.history-picker-grid { display: grid; grid-template-columns: 2fr 1.5fr 1fr auto; gap: 14px; align-items: end; }
+.machine-empty { color: var(--muted); text-align: center; padding: 30px 10px; }
+.recent-contacts { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 18px; }
+.recent-head { display: flex; justify-content: space-between; align-items: center; }
+.contact-item { width: 100%; display: grid; grid-template-columns: 1fr 1.5fr 1fr; gap: 10px; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: #fff; padding: 12px; }
+.contact-item:hover { background: #f6f9fd; }
+.totp-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.totp-card { width: min(520px, 100%); padding: 34px; }
+.totp-card h1 { margin: 5px 0 8px; }
+.totp-description { color: var(--muted); }
+.totp-display { font: 800 clamp(42px, 10vw, 72px)/1.1 ui-monospace, monospace; letter-spacing: .12em; text-align: center; padding: 30px 0; }
+.totp-timer-row { display: flex; justify-content: space-between; }
+.totp-track { height: 7px; margin-top: 8px; border-radius: 9px; background: #e5eaf1; overflow: hidden; }
+.totp-track span { display: block; height: 100%; background: var(--blue); transition: width .2s linear; }
+.totp-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+@media (max-width: 760px) {
+  .machine-header, .page-hero { align-items: flex-start; flex-direction: column; }
+  .machine-header { padding: 18px 0; }
+  .form-grid, .student-info, .status-grid, .detail-grid, .stack-meta, .history-picker-grid { grid-template-columns: 1fr; }
+  .machine-card { padding: 18px; }
+}
