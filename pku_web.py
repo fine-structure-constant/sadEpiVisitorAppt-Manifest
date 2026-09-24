@@ -4,40 +4,39 @@ from __future__ import annotations
 
 import os
 import secrets
+import threading
 import time
-from urllib.parse import parse_qs, quote, urlparse
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+
+from local_config import LocalConfig
+from notification_mailer import send_appointment_success
+from pku_client import (
+    appointment_request,
+    history_request,
+    perform_login,
+    prepare_iaaa_session,
+    verify_summary,
+)
+from queue_store import AppointmentQueue
+from scheduler_service import QueueScheduler
 
 
-APP_ID = "portal2017"
-APP_NAME = "北京大学校内信息门户新版"
-REDIRECT_URL = "https://portal.pku.edu.cn/portal2017/ssoLogin.do"
-OAUTH_URL = (
-    "https://iaaa.pku.edu.cn/iaaa/oauth.jsp"
-    f"?appID={APP_ID}"
-    f"&appName={quote(APP_NAME)}"
-    f"&redirectUrl={quote(REDIRECT_URL, safe='')}"
+TOTP_INTERVAL = 30
+CONFIG_PATH = Path(
+    os.environ.get("PKU_TOTP_CONFIG", Path(__file__).with_name("config.json"))
 )
-PUBLIC_KEY_URL = "https://iaaa.pku.edu.cn/iaaa/getPublicKey.do"
-VERIFY_URL = "https://iaaa.pku.edu.cn/iaaa/isMobileAuthen.do"
-LOGIN_URL = "https://iaaa.pku.edu.cn/iaaa/oauthlogin.do"
-PORTLET_URL = (
-    "https://portal.pku.edu.cn/portal2017/util/portletRedir.do"
-    "?portletId=sadEpiVisitorAppt"
+QUEUE_DB_PATH = Path(
+    os.environ.get(
+        "PKU_QUEUE_DB", Path(__file__).with_name("data") / "appointments.db"
+    )
 )
-SIMSO_LOGIN_URL = "https://simso.pku.edu.cn/ssapi/simsoLogin"
-SIMSO_API_ROOT = "https://simso.pku.edu.cn/ssapi"
-HISTORY_URL = "https://simso.pku.edu.cn/ssapi/stuaffair/epiVisitorAppt/getSqxxHis"
-APPOINTMENT_API = f"{SIMSO_API_ROOT}/stuaffair/epiVisitorAppt"
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/153.0.0.0 Safari/537.36 Edg/153.0.0.0"
-)
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+LOCAL_CONFIG = LocalConfig(CONFIG_PATH, totp_interval=TOTP_INTERVAL)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("PKU_WEB_SECRET", secrets.token_hex(32))
@@ -46,54 +45,22 @@ app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
 # Upstream sessions stay server-side. The browser receives only an opaque key.
 UPSTREAM_SESSIONS: dict[str, dict] = {}
 PENDING_SESSIONS: dict[str, dict] = {}
+AUTO_UPSTREAM: dict | None = None
+AUTO_UPSTREAM_LOCK = threading.Lock()
+QUEUE = AppointmentQueue(QUEUE_DB_PATH)
+QUEUE.initialize()
 
 
-def new_http_session() -> requests.Session:
-    client = requests.Session()
-    # This workstation exposes a dead localhost proxy via HTTP(S)_PROXY.
-    # Ignore ambient proxy variables by default; set PKU_USE_ENV_PROXY=1 when
-    # an explicitly configured working proxy is required.
-    client.trust_env = os.environ.get("PKU_USE_ENV_PROXY", "0") == "1"
-    client.headers.update(
-        {
-            "User-Agent": USER_AGENT,
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        }
-    )
-    return client
+def configured_account() -> tuple[str, str]:
+    return LOCAL_CONFIG.account()
 
 
-def parse_query_value(url: str, name: str) -> str:
-    values = parse_qs(urlparse(url).query).get(name, [])
-    if not values:
-        raise RuntimeError(f"重定向地址缺少参数 {name}")
-    return values[0]
-
-
-def encrypt_password(password: str, pem_key: str) -> str:
-    public_key = load_pem_public_key(pem_key.encode("utf-8"))
-    if not isinstance(public_key, rsa.RSAPublicKey):
-        raise RuntimeError("IAAA 返回的不是 RSA 公钥")
-    encrypted = public_key.encrypt(password.encode("utf-8"), padding.PKCS1v15())
-    import base64
-
-    return base64.b64encode(encrypted).decode("ascii")
+def configured_smtp() -> dict:
+    return LOCAL_CONFIG.smtp()
 
 
 def start_iaaa_session(username: str) -> tuple[str, requests.Session, dict]:
-    client = new_http_session()
-    client.get(OAUTH_URL, timeout=30).raise_for_status()
-    client.cookies.set("userName", username, domain="iaaa.pku.edu.cn", path="/")
-    client.cookies.set("remember", "true", domain="iaaa.pku.edu.cn", path="/")
-    verify = client.get(
-        VERIFY_URL,
-        params={"userName": username, "appId": APP_ID, "_rand": secrets.randbits(53)},
-        timeout=30,
-    )
-    verify.raise_for_status()
-    info = verify.json()
+    client, info = prepare_iaaa_session(username)
     pending_id = secrets.token_urlsafe(32)
     PENDING_SESSIONS[pending_id] = {
         "username": username,
@@ -110,132 +77,113 @@ def cleanup_pending() -> None:
             PENDING_SESSIONS.pop(key, None)
 
 
-def verify_summary(info: dict) -> dict:
-    return {
-        "success": bool(info.get("success")),
-        "second_factor": bool(info.get("isMobileAuthen")),
-        "mode": info.get("authenMode") or "",
-        "trusted_device_option": bool(info.get("isUnuAuth")),
-        "captcha": bool(info.get("showCode")),
-    }
+def login_from_local_config() -> dict:
+    """Create a fresh upstream session using only local secrets."""
+    username, password = configured_account()
+    client, verification_info = prepare_iaaa_session(username)
+    summary = verify_summary(verification_info)
+    if summary["captcha"]:
+        raise RuntimeError("账户登录要求图形验证码，无法自动登录")
 
+    otp_code = ""
+    if summary["second_factor"]:
+        mode = str(summary["mode"]).upper()
+        if mode != "OTP":
+            raise RuntimeError(f"账户登录要求 {mode or '未知'} 二次验证，无法自动填写")
+        otp_code = configured_totp().now()
 
-def perform_login(client: requests.Session, username: str, values: dict) -> dict:
-    key_response = client.get(PUBLIC_KEY_URL, timeout=30)
-    key_response.raise_for_status()
-    key_data = key_response.json()
-    if not key_data.get("success") or not key_data.get("key"):
-        raise RuntimeError("无法获取 IAAA 公钥")
-
-    payload = {
-        "appid": APP_ID,
-        "userName": username,
-        "password": encrypt_password(values["password"], key_data["key"]),
-        "randCode": values.get("rand_code", ""),
-        "smsCode": values.get("sms_code", ""),
-        "otpCode": values.get("otp_code", ""),
-        "remTrustChk": "true" if values.get("trust_device", True) else "false",
-        "redirUrl": REDIRECT_URL,
-    }
-    login_response = client.post(
-        LOGIN_URL,
-        data=payload,
-        headers={
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Origin": "https://iaaa.pku.edu.cn",
-            "Referer": OAUTH_URL,
-            "X-Requested-With": "XMLHttpRequest",
+    result = perform_login(
+        client,
+        username,
+        {
+            "password": password,
+            "otp_code": otp_code,
+            "sms_code": "",
+            "rand_code": "",
+            "trust_device": True,
         },
-        timeout=30,
     )
-    login_response.raise_for_status()
-    login_data = login_response.json()
-    if not login_data.get("success"):
-        error = login_data.get("errors") or {}
-        raise ValueError(error.get("msg") or "IAAA 登录失败")
+    return {**result, "username": username, "created": time.time()}
 
-    token = login_data.get("token")
-    if not token:
-        raise RuntimeError("IAAA 登录响应缺少 token")
-    token_url = f"{REDIRECT_URL}?_rand={secrets.randbits(53)}&token={quote(token, safe='')}"
-    portal = client.get(token_url, allow_redirects=True, timeout=30)
-    portal.raise_for_status()
 
-    simso_entry = client.get(PORTLET_URL, allow_redirects=True, timeout=30)
-    simso_entry.raise_for_status()
-    if "simso.pku.edu.cn" not in simso_entry.url:
-        raise RuntimeError("门户没有跳转到 SIMSO")
-
-    simso_token = parse_query_value(simso_entry.url, "token")
-    simso_login = client.get(
-        SIMSO_LOGIN_URL,
-        params={"token": simso_token, "page": "sadEpiVisitorAppt.html"},
-        headers={
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Referer": simso_entry.url,
-            "X-Requested-With": "XMLHttpRequest",
-        },
-        timeout=30,
-    )
-    simso_login.raise_for_status()
-    simso_data = simso_login.json()
-    if not simso_data.get("success"):
-        raise ValueError(simso_data.get("msg") or "SIMSO 登录失败")
-    if not simso_data.get("sid") or not simso_data.get("xh"):
-        raise RuntimeError("SIMSO 登录响应缺少 sid 或学号")
-
-    client.cookies.set("sid", simso_data["sid"], domain="simso.pku.edu.cn", path="/")
-    final_url = (
-        "https://simso.pku.edu.cn/pages/sadEpiVisitorAppt.html"
-        f"?_sk={quote(str(simso_data['xh']), safe='')}#/index"
-    )
-    client.get(final_url, timeout=30).raise_for_status()
-    return {"client": client, "student_id": str(simso_data["xh"]), "sid": simso_data["sid"]}
+def automatic_upstream(*, force: bool = False) -> dict:
+    global AUTO_UPSTREAM
+    with AUTO_UPSTREAM_LOCK:
+        if (
+            not force
+            and AUTO_UPSTREAM is not None
+            and time.time() - AUTO_UPSTREAM["created"] < 15 * 60
+        ):
+            return AUTO_UPSTREAM
+        AUTO_UPSTREAM = login_from_local_config()
+        return AUTO_UPSTREAM
 
 
 def current_upstream() -> dict:
     key = session.get("upstream_key")
-    if not key or key not in UPSTREAM_SESSIONS:
-        raise PermissionError("请先登录")
-    return UPSTREAM_SESSIONS[key]
-
-
-def appointment_request(
-    upstream: dict,
-    method: str,
-    action: str,
-    *,
-    params: dict | None = None,
-    data: dict | None = None,
-) -> dict:
-    """Call one SIMSO appointment endpoint using the logged-in server session."""
-    client: requests.Session = upstream["client"]
-    request_params = {
-        "sid": upstream["sid"],
-        "_sk": upstream["student_id"],
-    }
-    if params:
-        request_params.update(params)
-    response = client.request(
-        method,
-        f"{APPOINTMENT_API}/{action}",
-        params=request_params,
-        json=data if method.upper() in {"POST", "PUT", "PATCH"} else None,
-        headers={"X-Requested-With": "XMLHttpRequest"},
-        timeout=30,
-    )
-    response.raise_for_status()
-    result = response.json()
-    if result.get("code") not in (None, 1) and not result.get("success"):
-        raise RuntimeError(result.get("msg") or "预约接口返回失败")
-    if result.get("success") is False and result.get("code") != 1:
-        raise RuntimeError(result.get("msg") or "预约接口返回失败")
-    return result
+    if key and key in UPSTREAM_SESSIONS:
+        return UPSTREAM_SESSIONS[key]
+    try:
+        return automatic_upstream()
+    except (requests.RequestException, ValueError, RuntimeError) as exc:
+        raise PermissionError(f"自动登录失败：{exc}") from exc
 
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return redirect(url_for("stack_page"))
+
+
+def configured_totp():
+    """Load the local TOTP secret without exposing it to the browser."""
+    return LOCAL_CONFIG.totp()
+
+
+@app.get("/topt")
+def topt_page():
+    return render_template("totp.html")
+
+
+@app.get("/totp")
+def totp_legacy_page():
+    return redirect(url_for("topt_page"), code=302)
+
+
+@app.get("/history")
+def history_page():
+    return render_template("history.html")
+
+
+@app.get("/appointment")
+def appointment_page():
+    return render_template("appointment.html")
+
+
+@app.get("/stack")
+def stack_page():
+    return render_template("stack.html")
+
+
+@app.get("/api/totp")
+def totp_code():
+    now = time.time()
+    try:
+        code = configured_totp().at(now)
+    except RuntimeError as exc:
+        response = jsonify(error=str(exc))
+        response.headers["Cache-Control"] = "no-store"
+        return response, 503
+
+    valid_until = (int(now) // TOTP_INTERVAL + 1) * TOTP_INTERVAL
+    response = jsonify(
+        code=code,
+        digits=6,
+        period=TOTP_INTERVAL,
+        server_time=now,
+        valid_until=valid_until,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.post("/api/verification")
@@ -310,25 +258,9 @@ def history():
     except ValueError:
         return jsonify(error="页码参数无效"), 400
 
-    client: requests.Session = upstream["client"]
     try:
-        response = client.get(
-            HISTORY_URL,
-            params={
-                "sid": upstream["sid"],
-                "_sk": upstream["student_id"],
-                "pageSize": page_size,
-                "pageNum": page,
-            },
-            headers={"X-Requested-With": "XMLHttpRequest"},
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-        if data.get("code") != 1 and not data.get("success"):
-            return jsonify(error=data.get("msg") or "历史记录读取失败"), 502
-        return jsonify(data)
-    except (requests.RequestException, ValueError) as exc:
+        return jsonify(history_request(upstream, page, page_size))
+    except (requests.RequestException, ValueError, RuntimeError) as exc:
         return jsonify(error=f"历史记录请求失败：{exc}"), 502
 
 
@@ -414,6 +346,249 @@ def appointment_payload(body: dict) -> dict:
     return payload
 
 
+def parse_beijing_time(value: object) -> float:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("请选择自动提交时间")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError("自动提交时间格式无效") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=BEIJING_TZ)
+    else:
+        parsed = parsed.astimezone(BEIJING_TZ)
+    return parsed.timestamp()
+
+
+def beijing_iso(timestamp: float | None) -> str | None:
+    if timestamp is None:
+        return None
+    return datetime.fromtimestamp(timestamp, BEIJING_TZ).isoformat(timespec="seconds")
+
+
+def public_job(job: dict) -> dict:
+    item = dict(job)
+    for field in (
+        "scheduled_at",
+        "next_attempt_at",
+        "created_at",
+        "updated_at",
+        "started_at",
+        "finished_at",
+    ):
+        item[field] = beijing_iso(item.get(field))
+    return item
+
+
+def submit_existing_appointment(upstream: dict, remote_id: str) -> dict:
+    verification = appointment_request(
+        upstream, "GET", "sendEcyzCode", params={"sqxxid": remote_id}
+    )
+    row = verification.get("row") or {}
+    if not isinstance(row, dict):
+        raise RuntimeError("预约验证接口返回格式异常")
+    verification_type = str(row.get("type", "")).lower()
+    if verification_type == "byz":
+        code = ""
+    elif verification_type in {"opt", "otp"}:
+        if row.get("flag") is False:
+            raise RuntimeError(row.get("errmsg") or "预约令牌验证初始化失败")
+        code = configured_totp().now()
+    else:
+        description = {
+            "sms": "短信验证码",
+            "wx": "微信验证码",
+        }.get(verification_type, verification_type or "未知验证")
+        raise RuntimeError(f"当前预约要求{description}，无法自动填写")
+
+    submitted = appointment_request(
+        upstream,
+        "GET",
+        "submitSqxx",
+        params={"sqxxid": remote_id, "code": code},
+    )
+    return {"verification_type": verification_type, "submitted": submitted}
+
+
+def perform_queued_appointment(job: dict) -> tuple[str, dict]:
+    """Submit a queued remote draft using a fresh login session."""
+    upstream = login_from_local_config()
+    appointment_payload(job["payload"])
+    remote_id = str(job.get("remote_id") or "").strip()
+    if not remote_id:
+        raise RuntimeError("队列任务缺少已有的预约申请编号")
+    detail = appointment_request(
+        upstream, "GET", "getSqxx", params={"sqxxid": remote_id}
+    )
+    detail_row = detail.get("row") or {}
+    if isinstance(detail_row, dict) and str(detail_row.get("tjbz", "")).lower() == "y":
+        return remote_id, {
+            "saved": True,
+            "reconciled": True,
+            "submitted": detail,
+        }
+
+    return remote_id, {"saved": True, **submit_existing_appointment(upstream, remote_id)}
+
+
+def send_success_email(job: dict) -> None:
+    send_appointment_success(configured_smtp(), job)
+
+
+def notify_completed_job(job_id: int) -> dict | None:
+    job = QUEUE.get(job_id)
+    if not job or job["status"] != "completed":
+        return job
+    try:
+        configured_smtp()
+    except RuntimeError as exc:
+        return QUEUE.set_email_result(job_id, "skipped", str(exc))
+    try:
+        send_success_email(job)
+        return QUEUE.set_email_result(job_id, "sent")
+    except Exception as exc:
+        return QUEUE.set_email_result(job_id, "failed", str(exc))
+
+
+def process_queue_job(job: dict) -> None:
+    try:
+        remote_id, result = perform_queued_appointment(job)
+        QUEUE.complete(job["id"], remote_id=remote_id, result=result)
+        notify_completed_job(job["id"])
+    except Exception as exc:
+        QUEUE.fail(job["id"], str(exc))
+
+
+SCHEDULER = QueueScheduler(QUEUE, process_queue_job)
+
+
+@app.get("/api/app-status")
+def app_status():
+    try:
+        configured_account()
+        account_ready = True
+        account_error = ""
+    except RuntimeError as exc:
+        account_ready = False
+        account_error = str(exc)
+    try:
+        configured_totp()
+        totp_ready = True
+        totp_error = ""
+    except RuntimeError as exc:
+        totp_ready = False
+        totp_error = str(exc)
+    try:
+        configured_smtp()
+        smtp_ready = True
+        smtp_error = ""
+    except (TypeError, ValueError, RuntimeError) as exc:
+        smtp_ready = False
+        smtp_error = str(exc)
+    return jsonify(
+        account_configured=account_ready,
+        account_error=account_error,
+        totp_configured=totp_ready,
+        totp_error=totp_error,
+        smtp_configured=smtp_ready,
+        smtp_error=smtp_error,
+        scheduler_running=SCHEDULER.running,
+        counts=QUEUE.counts(),
+        timezone="Asia/Shanghai",
+    )
+
+
+@app.get("/api/stack")
+def stack_list():
+    return jsonify(jobs=[public_job(job) for job in QUEUE.list()])
+
+
+@app.post("/api/stack/from-history")
+def stack_add_from_history():
+    body = request.get_json(silent=True) or {}
+    remote_id = str(body.get("sqxxid", "")).strip()
+    if not remote_id:
+        return jsonify(error="请选择一条历史预约草稿"), 400
+    existing = QUEUE.active_for_remote(remote_id)
+    if existing:
+        return jsonify(error=f"该申请已在任务 #{existing['id']} 中等待提交"), 409
+    try:
+        scheduled_at = parse_beijing_time(body.get("scheduled_at"))
+        max_attempts = int(body.get("max_attempts", 3))
+        upstream = current_upstream()
+        detail = appointment_request(
+            upstream, "GET", "getSqxx", params={"sqxxid": remote_id}
+        )
+        row = detail.get("row") or {}
+        if not isinstance(row, dict):
+            raise RuntimeError("历史预约详情格式异常")
+        if str(row.get("tjbz", "")).lower() == "y":
+            return jsonify(error="该预约已经提交，不能再次加入队列"), 409
+        payload = appointment_payload(row)
+        payload.pop("sqxxid", None)
+        job = QUEUE.add(
+            payload,
+            scheduled_at,
+            max_attempts=max_attempts,
+            remote_id=remote_id,
+        )
+        SCHEDULER.wake()
+        return jsonify(job=public_job(job)), 201
+    except PermissionError as exc:
+        return jsonify(error=str(exc)), 401
+    except (TypeError, ValueError) as exc:
+        return jsonify(error=str(exc)), 400
+    except (requests.RequestException, RuntimeError) as exc:
+        return jsonify(error=f"历史预约读取失败：{exc}"), 502
+
+
+@app.patch("/api/stack/<int:job_id>")
+def stack_reschedule(job_id: int):
+    body = request.get_json(silent=True) or {}
+    try:
+        scheduled_at = parse_beijing_time(body.get("scheduled_at"))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    if not QUEUE.reschedule(job_id, scheduled_at):
+        return jsonify(error="只有等待或重试中的任务可以改期"), 409
+    SCHEDULER.wake()
+    return jsonify(job=public_job(QUEUE.get(job_id)))
+
+
+@app.post("/api/stack/<int:job_id>/cancel")
+def stack_cancel(job_id: int):
+    if not QUEUE.cancel(job_id):
+        return jsonify(error="任务不存在，或当前状态不能取消"), 409
+    return jsonify(job=public_job(QUEUE.get(job_id)))
+
+
+@app.post("/api/stack/<int:job_id>/retry")
+def stack_retry(job_id: int):
+    if not QUEUE.retry(job_id):
+        return jsonify(error="只有失败或已取消的任务可以重试"), 409
+    SCHEDULER.wake()
+    return jsonify(job=public_job(QUEUE.get(job_id)))
+
+
+@app.post("/api/stack/<int:job_id>/email")
+def stack_resend_email(job_id: int):
+    job = QUEUE.get(job_id)
+    if not job or job["status"] != "completed":
+        return jsonify(error="只有已完成任务可以发送成功通知"), 409
+    updated = notify_completed_job(job_id)
+    if updated and updated.get("email_status") == "sent":
+        return jsonify(job=public_job(updated))
+    return jsonify(error=(updated or {}).get("email_error") or "邮件发送失败"), 502
+
+
+@app.delete("/api/stack/<int:job_id>")
+def stack_delete(job_id: int):
+    if not QUEUE.delete(job_id):
+        return jsonify(error="只能删除已完成、失败或已取消的任务"), 409
+    return jsonify(ok=True)
+
+
 @app.post("/api/appointment/save")
 def appointment_save():
     try:
@@ -426,6 +601,55 @@ def appointment_save():
         return jsonify(error=str(exc)), 400
     except (requests.RequestException, ValueError, RuntimeError) as exc:
         return jsonify(error=f"预约保存失败：{exc}"), 502
+
+
+@app.post("/api/appointment/submit-automatic")
+def appointment_submit_automatic():
+    body = request.get_json(silent=True) or {}
+    remote_id = str(body.get("sqxxid", "")).strip()
+    if not remote_id:
+        return jsonify(error="请先保存预约申请"), 400
+    try:
+        upstream = current_upstream()
+        detail = appointment_request(
+            upstream, "GET", "getSqxx", params={"sqxxid": remote_id}
+        )
+        row = detail.get("row") or {}
+        if not isinstance(row, dict):
+            raise RuntimeError("预约详情格式异常")
+        if str(row.get("tjbz", "")).lower() == "y":
+            return jsonify(error="该预约已经提交"), 409
+        payload = appointment_payload(row)
+        result = submit_existing_appointment(upstream, remote_id)
+
+        try:
+            smtp = configured_smtp()
+        except RuntimeError as exc:
+            email_status = "skipped"
+            email_error = str(exc)
+        else:
+            try:
+                send_appointment_success(
+                    smtp,
+                    {"id": "即时提交", "remote_id": remote_id, "payload": payload},
+                )
+                email_status = "sent"
+                email_error = ""
+            except Exception as exc:
+                email_status = "failed"
+                email_error = str(exc)
+        return jsonify(
+            sqxxid=remote_id,
+            result=result,
+            email_status=email_status,
+            email_error=email_error,
+        )
+    except PermissionError as exc:
+        return jsonify(error=str(exc)), 401
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except (requests.RequestException, RuntimeError) as exc:
+        return jsonify(error=f"预约自动提交失败：{exc}"), 502
 
 
 @app.post("/api/appointment/send-code")
@@ -477,4 +701,5 @@ def logout():
 
 
 if __name__ == "__main__":
+    SCHEDULER.start()
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")), debug=False)

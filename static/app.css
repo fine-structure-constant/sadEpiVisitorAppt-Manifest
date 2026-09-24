@@ -93,6 +93,20 @@ summary { cursor: pointer; color: var(--teal); font-size: .88rem; font-weight: 7
 .records-actions { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 24px; }
 .empty { padding: 44px 12px; text-align: center; color: var(--muted); }
 
+.totp-shell { display: grid; min-height: 100vh; place-items: center; padding: 24px; }
+.totp-card { width: min(480px, 100%); padding: clamp(28px, 7vw, 48px); text-align: center; }
+.totp-card h1 { margin-bottom: 10px; font-size: clamp(2rem, 8vw, 3rem); }
+.totp-description { color: var(--muted); line-height: 1.6; }
+.totp-description code { padding: 2px 6px; border-radius: 5px; background: #edf2f4; color: var(--navy); }
+.totp-display { margin: 30px 0 24px; padding: 24px 16px; border: 1px solid var(--line); border-radius: 16px; background: #f9fbfb; color: var(--navy); font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; font-size: clamp(2.5rem, 12vw, 4.5rem); font-weight: 800; letter-spacing: .08em; line-height: 1; }
+.totp-timer { text-align: left; }
+.totp-timer-row { display: flex; justify-content: space-between; margin-bottom: 9px; color: var(--muted); font-size: .9rem; }
+.totp-timer-row strong { color: var(--teal); }
+.totp-track { height: 8px; overflow: hidden; border-radius: 99px; background: #e5ebee; }
+.totp-track span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--teal); transition: width .2s linear; }
+.totp-actions { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 20px; }
+.totp-actions .button { text-decoration: none; }
+
 @media (max-width: 640px) {
   .shell { width: min(100% - 22px, 980px); padding-top: 24px; }
   .topbar { align-items: flex-start; flex-direction: column; gap: 12px; }

@@ -1,2 +1,4 @@
 __pycache__/
 appointment/
+config.json
+data/

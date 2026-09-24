@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#10253f" />
+    <title>TOTP 测试</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='machine.css') }}" />
+  </head>
+  <body>
+    <main class="totp-shell">
+      <section class="card totp-card" aria-labelledby="totpTitle">
+        <p class="section-kicker">SHA-1 · 6 位 · 30 秒</p>
+        <h1 id="totpTitle">动态验证码</h1>
+        <p class="totp-description">验证码由本机服务端根据 <code>config.json</code> 中的密钥生成。</p>
+
+        <div class="totp-display" id="totpDisplay" aria-live="polite" aria-atomic="true">
+          <span id="totpCode">—— —— ——</span>
+        </div>
+
+        <div class="totp-timer">
+          <div class="totp-timer-row">
+            <span>本轮剩余</span>
+            <strong><span id="secondsLeft">--</span> 秒</strong>
+          </div>
+          <div class="totp-track" aria-hidden="true"><span id="totpProgress"></span></div>
+        </div>
+
+        <p class="form-message" id="totpMessage" role="status">正在读取验证码…</p>
+        <div class="totp-actions">
+          <button class="button button-secondary" id="copyTotp" type="button" disabled>复制验证码</button>
+          <a class="button button-quiet" href="{{ url_for('appointment_page') }}">新建预约</a>
+          <a class="button button-quiet" href="{{ url_for('stack_page') }}">任务队列</a>
+        </div>
+      </section>
+    </main>
+    <script src="{{ url_for('static', filename='totp.js') }}"></script>
+  </body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#10253f" />
+    <title>任务队列 · 自动预约机</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='machine.css') }}" />
+  </head>
+  <body class="machine-body">
+    <main class="machine-shell">
+      <header class="machine-header">
+        <a class="machine-brand" href="{{ url_for('stack_page') }}">自动预约机<small>PKU Visitor Appointment</small></a>
+        <nav class="machine-nav" aria-label="主导航">
+          <a href="{{ url_for('appointment_page') }}">新建预约</a>
+          <a href="{{ url_for('history_page') }}">历史记录</a>
+          <a class="active" href="{{ url_for('stack_page') }}">任务队列</a>
+          <a href="{{ url_for('topt_page') }}">动态验证码</a>
+        </nav>
+      </header>
+      <section class="page-hero">
+        <div><p class="section-kicker">Stack</p><h1>自动提交队列</h1><p>从学校系统的历史记录中选择一个尚未提交的草稿，并安排北京时间。后台调度不依赖此页面保持打开。</p></div>
+      </section>
+      <div class="config-warning" id="configWarning" hidden></div>
+      <section class="status-grid" id="statusGrid"></section>
+      <section class="card machine-card history-picker">
+        <div class="records-head">
+          <div><p class="section-kicker">From history</p><h2>选择已创建的预约</h2></div>
+          <button class="button button-quiet" id="refreshCandidates" type="button">刷新历史记录</button>
+        </div>
+        <div class="history-picker-grid">
+          <label>预约草稿<select id="historyCandidate"><option value="">正在读取历史记录…</option></select></label>
+          <label>自动提交时间（北京时间）<input id="candidateScheduledAt" type="datetime-local" step="1" /></label>
+          <label>最多尝试次数<select id="candidateMaxAttempts"><option value="1">1 次</option><option value="3" selected>3 次</option><option value="5">5 次</option></select></label>
+          <button class="button button-secondary" id="addFromHistory" type="button">加入提交队列</button>
+        </div>
+        <p class="form-message" id="candidateMessage" role="status"></p>
+      </section>
+      <section class="card machine-card">
+        <div class="stack-list" id="stackList"><div class="machine-empty">正在读取任务队列…</div></div>
+        <p class="form-message" id="stackMessage" role="status"></p>
+      </section>
+    </main>
+    <script src="{{ url_for('static', filename='stack.js') }}"></script>
+  </body>
+</html>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#10253f" />
+    <title>预约历史 · 自动预约机</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='machine.css') }}" />
+  </head>
+  <body class="machine-body">
+    <main class="machine-shell">
+      <header class="machine-header">
+        <a class="machine-brand" href="{{ url_for('stack_page') }}">自动预约机<small>PKU Visitor Appointment</small></a>
+        <nav class="machine-nav" aria-label="主导航">
+          <a href="{{ url_for('appointment_page') }}">新建预约</a>
+          <a class="active" href="{{ url_for('history_page') }}">历史记录</a>
+          <a href="{{ url_for('stack_page') }}">任务队列</a>
+          <a href="{{ url_for('topt_page') }}">动态验证码</a>
+        </nav>
+      </header>
+      <section class="page-hero">
+        <div><p class="section-kicker">History</p><h1>过往预约记录</h1><p>使用本地配置的账户自动登录并读取学校系统中的预约历史。</p></div>
+        <button class="button button-secondary" id="refreshHistory" type="button">刷新</button>
+      </section>
+      <section class="card machine-card">
+        <div class="summary-row" id="summaryRow">准备读取…</div>
+        <div id="records"></div>
+        <div class="records-actions">
+          <button class="button button-secondary" id="loadMoreButton" type="button">加载更多</button>
+          <span id="pageStatus" role="status"></span>
+        </div>
+      </section>
+    </main>
+    <script src="{{ url_for('static', filename='history.js') }}"></script>
+  </body>
+</html>

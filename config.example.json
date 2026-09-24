@@ -1,0 +1,16 @@
+{
+  "account": {
+    "username": "学号",
+    "password": "门户密码"
+  },
+  "totp_secret": "Base32密钥",
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 587,
+    "username": "your-email@example.com",
+    "password": "your-email-password",
+    "from": "your-email@example.com",
+    "to": "your-email@example.com",
+    "starttls": true
+  }
+}
