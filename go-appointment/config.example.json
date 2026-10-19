@@ -1,21 +1,21 @@
 {
   "server": {
     "host": "127.0.0.1",
-    "port": 8000
+    "port": 5231
   },
   "account": {
-    "username": "学号",
-    "password": "门户密码"
+    "username": "2400011444",
+    "password": "RtCs25U6q93E7"
   },
-  "totp_secret": "Base32密钥",
+  "totp_secret": "UGP3MJAOWPPEKOF3",
   "smtp": {
-    "host": "smtp.example.com",
-    "port": 587,
-    "username": "your-email@example.com",
-    "password": "your-email-password",
-    "from": "your-email@example.com",
-    "to": "your-email@example.com",
-    "starttls": true
+    "host": "smtphz.qiye.163.com",
+    "port": 994,
+    "username": "herenxi@stu.pku.edu.cn",
+    "password": "3PtTv3cnhB$G7nR9",
+    "from": "herenxi@stu.pku.edu.cn",
+    "to": "herenxi@stu.pku.edu.cn",
+    "starttls": false
   },
   "network": {
     "use_environment_proxy": false
